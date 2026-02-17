@@ -246,6 +246,3 @@ All endpoints require `Authorization: Bearer <supabase-jwt-token>`.
 | `chats` | `id`, `company_id`, `user_id`, `title` |
 | `messages` | `id`, `chat_id`, `role` (user/assistant), `content` |
 
----
-
-*Built with ❤️ by Praveen*
