@@ -77,7 +77,7 @@ const Chat = () => {
                 if (!token) throw new Error("No valid session");
 
                 // 1. Get all chats
-                const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
+                const response = await fetch(`${import.meta.env.VITE_API_URL}/api/chat`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!response.ok) throw new Error("Failed to fetch chats");
@@ -89,7 +89,7 @@ const Chat = () => {
                     
                     // 3. Try to get messages for this chat
                     try {
-                        const msgResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/${latestChat.id}/messages`, {
+                        const msgResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/chat/${latestChat.id}/messages`, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         
@@ -168,7 +168,7 @@ const Chat = () => {
                 return;
             }
 
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
+            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
