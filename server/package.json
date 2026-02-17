@@ -1,0 +1,31 @@
+{
+  "name": "memorix-server",
+  "version": "1.0.0",
+  "description": "Backend for Memorix AI Decision Engine",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.11.1",
+    "@pinecone-database/pinecone": "^7.0.0",
+    "@supabase/supabase-js": "^2.43.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "langchain": "^0.1.36",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.11.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
