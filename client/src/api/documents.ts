@@ -4,7 +4,7 @@ export type Document = {
     id: string;
     filename: string;
     file_type: string;
-    status: 'uploading' | 'processing' | 'indexed' | 'failed';
+    status: 'uploading' | 'processing' | 'indexed' | 'completed' | 'processed' | 'failed';
     created_at: string;
 };
 

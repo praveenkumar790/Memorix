@@ -1,10 +1,9 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadCloud, File, CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { uploadDocument, getDocuments, Document } from "@/api/documents";
 
@@ -17,9 +16,9 @@ const Upload = () => {
     const [errorMessage, setErrorMessage] = useState("");
 
     const { data: documents, isLoading: documentsLoading } = useQuery<Document[]>({
-        queryKey: ["documents", profile?.role_id], // Include role_id to prevent cache sharing
+        queryKey: ["documents", profile?.workspace_id],
         queryFn: getDocuments,
-        enabled: !authLoading && !!profile, // Only run when auth is ready
+        enabled: !authLoading && !!profile,
     });
 
     const handleDragOver = (e: React.DragEvent) => {
@@ -53,169 +52,258 @@ const Upload = () => {
         try {
             await uploadDocument(file);
             setUploadStatus('success');
-            // Refresh documents list
             queryClient.invalidateQueries({ queryKey: ["documents"] });
             queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
             setTimeout(() => {
                 setFile(null);
                 setUploadStatus('idle');
-            }, 3000);
+            }, 2500);
         } catch (error: any) {
             console.error(error);
             setUploadStatus('error');
-            setErrorMessage(error.response?.data?.error || error.message || "Failed to upload file");
-            setTimeout(() => setUploadStatus('idle'), 5000);
+            if (error.response?.status === 429) {
+                const errData = error.response.data;
+                const time = new Date(errData.resetAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                setErrorMessage(`⚠️ Rate Limit Reached: ${errData.message} Try again at ${time}.`);
+                setTimeout(() => setUploadStatus('idle'), 8000);
+            } else {
+                setErrorMessage(error.response?.data?.error || error.message || "Failed to upload file");
+                setTimeout(() => setUploadStatus('idle'), 5000);
+            }
         }
     };
 
-    const getStatusBadge = (status: string) => {
+    const formatBytes = (bytes: number, decimals = 2) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const getStatusIndicator = (status: string) => {
         switch (status) {
+            case 'indexed':
             case 'completed':
-                return <span className="text-xs text-green-600 dark:text-green-400 font-medium px-2 py-1 bg-green-50 dark:bg-green-900/30 rounded-full">Processed</span>;
+            case 'processed':
+                return (
+                    <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                        <span>indexed</span>
+                    </div>
+                );
             case 'processing':
-                return <span className="text-xs text-blue-600 dark:text-blue-400 font-medium px-2 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">Processing</span>;
+                return (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        <span>processing</span>
+                    </div>
+                );
             case 'failed':
-                return <span className="text-xs text-red-600 dark:text-red-400 font-medium px-2 py-1 bg-red-50 dark:bg-red-900/30 rounded-full">Failed</span>;
+                return (
+                    <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 font-medium">
+                        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                        <span>failed</span>
+                    </div>
+                );
             case 'pending':
-                return <span className="text-xs text-yellow-600 dark:text-yellow-400 font-medium px-2 py-1 bg-yellow-50 dark:bg-yellow-900/30 rounded-full">Pending</span>;
             default:
-                return <span className="text-xs text-gray-600 dark:text-gray-400 font-medium px-2 py-1 bg-gray-50 dark:bg-gray-700 rounded-full">{status}</span>;
+                return (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        <span>pending</span>
+                    </div>
+                );
         }
     };
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-10">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight text-fg dark:text-white">Upload Documents</h1>
-                <p className="text-fg-secondary dark:text-gray-400">Add PDF policies, architectural diagrams, or meeting notes.</p>
+        <div className="space-y-12 animate-in fade-in duration-500 pb-16">
+            {/* Header Greeting */}
+            <div className="space-y-1">
+                <h1 className="text-3xl font-light tracking-tight text-fg dark:text-white">
+                    Upload <span className="font-semibold">Documents</span>
+                </h1>
+                <p className="text-sm text-fg-secondary dark:text-gray-400 font-light">
+                    Ingest corporate policies, diagrams, or memos into secure organizational memory.
+                </p>
             </div>
 
-            <Card className="shadow-md border-border/60 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm">
-                <CardHeader>
-                    <CardTitle>File Upload</CardTitle>
-                    <CardDescription>Drag and drop your files here or click to browse.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div 
-                        className={`
-                            border-2 border-dashed rounded-xl p-12 text-center transition-all duration-300
-                            ${isDragging 
-                                ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 scale-[1.01]' 
-                                : 'border-border dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-bg-secondary/50 dark:hover:bg-gray-800'
-                            }
-                            ${uploadStatus === 'success' ? 'border-green-500 bg-green-50/50 dark:bg-green-900/20' : ''}
-                            ${uploadStatus === 'error' ? 'border-red-500 bg-red-50/50 dark:bg-red-900/20' : ''}
-                        `}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                    >
-                        {uploadStatus === 'idle' && !file && (
-                            <div className="flex flex-col items-center gap-4 animate-in slide-in-from-bottom-2">
-                                <div className="p-4 rounded-full bg-blue-50 dark:bg-gray-800 text-blue-600 dark:text-blue-400 mb-2">
-                                    <UploadCloud className="h-10 w-10" />
-                                </div>
-                                <div>
-                                    <p className="text-lg font-semibold text-fg dark:text-white">Drag & drop files here</p>
-                                    <p className="text-sm text-fg-secondary dark:text-gray-400 mt-1">PDF, DOCX, TXT up to 10MB</p>
-                                </div>
-                                <div className="relative mt-2">
-                                    <Button variant="outline" className="relative z-10">
-                                        Browse Files
-                                    </Button>
-                                    <input 
-                                        type="file" 
-                                        className="absolute inset-0 opacity-0 cursor-pointer z-20" 
-                                        onChange={handleFileChange}
-                                        accept=".pdf,.docx,.txt"
-                                    />
-                                </div>
+            {/* Dropper Container */}
+            <div 
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={cn(
+                    "relative border border-dashed rounded-2xl p-10 text-center transition-all duration-300 backdrop-blur-md select-none",
+                    isDragging 
+                        ? 'border-purple-500 bg-purple-500/[0.03] dark:bg-purple-500/[0.01] scale-[1.005]' 
+                        : 'border-black/[0.08] dark:border-white/10 hover:border-black/20 dark:hover:border-white/20 bg-white/40 dark:bg-white/[0.02]',
+                    uploadStatus === 'success' ? 'border-green-500/50 bg-green-500/[0.02]' : '',
+                    uploadStatus === 'error' ? 'border-red-500/50 bg-red-500/[0.02]' : ''
+                )}
+            >
+                <AnimatePresence mode="wait">
+                    {uploadStatus === 'idle' && !file && (
+                        <motion.div 
+                            key="idle"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className="flex flex-col items-center gap-5 py-4"
+                        >
+                            <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.04] dark:border-white/5 text-fg-secondary dark:text-gray-400">
+                                <UploadCloud className="h-7 w-7" />
                             </div>
-                        )}
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold text-fg dark:text-white">
+                                    Drag and drop your file here
+                                </p>
+                                <p className="text-xs text-fg-secondary dark:text-gray-400 font-light">
+                                    Supports PDF, DOCX, or TXT up to 10MB
+                                </p>
+                            </div>
+                            <div className="relative mt-2">
+                                <button className="px-4 py-2 text-xs font-semibold rounded-lg bg-black dark:bg-white text-white dark:text-black hover:opacity-95 transition-opacity focus:outline-none cursor-pointer border-none">
+                                    Browse Files
+                                </button>
+                                <input 
+                                    type="file" 
+                                    className="absolute inset-0 opacity-0 cursor-pointer" 
+                                    onChange={handleFileChange}
+                                    accept=".pdf,.docx,.txt"
+                                />
+                            </div>
+                        </motion.div>
+                    )}
 
-                        {file && uploadStatus !== 'success' && uploadStatus !== 'error' && (
-                            <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in-95">
-                                <div className="p-4 rounded-full bg-bg-secondary dark:bg-gray-800">
-                                    <File className="h-10 w-10 text-fg dark:text-gray-300" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium dark:text-white text-lg">{file.name}</p>
-                                    <p className="text-xs text-fg-secondary dark:text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                                </div>
-                                <Button onClick={handleUpload} disabled={uploadStatus === 'uploading'} className="min-w-[140px]">
+                    {file && uploadStatus !== 'success' && uploadStatus !== 'error' && (
+                        <motion.div 
+                            key="selected"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.2 }}
+                            className="flex flex-col items-center gap-5 py-4"
+                        >
+                            <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.04] dark:border-white/5 text-fg dark:text-white">
+                                <File className="h-7 w-7" />
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold dark:text-white block max-w-sm truncate">
+                                    {file.name}
+                                </p>
+                                <p className="text-xs text-fg-secondary dark:text-gray-400 font-light">
+                                    {formatBytes(file.size)}
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setFile(null)}
+                                    disabled={uploadStatus === 'uploading'}
+                                    className="px-4 py-2 text-xs font-semibold rounded-lg border border-black/[0.08] dark:border-white/10 text-fg-secondary hover:bg-black/5 dark:hover:bg-white/5 bg-transparent transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleUpload} 
+                                    disabled={uploadStatus === 'uploading'} 
+                                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 cursor-pointer border-none"
+                                >
                                     {uploadStatus === 'uploading' ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Processing...
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            Ingesting...
                                         </>
                                     ) : (
-                                        "Upload & Ingest"
+                                        "Ingest Memory"
                                     )}
-                                </Button>
+                                </button>
                             </div>
-                        )}
+                        </motion.div>
+                    )}
 
-                        {uploadStatus === 'success' && (
-                            <div className="flex flex-col items-center gap-4 text-green-600 dark:text-green-400 animate-in zoom-in-95">
-                                <div className="p-3 rounded-full bg-green-100 dark:bg-green-900/30">
-                                    <CheckCircle className="h-10 w-10" />
-                                </div>
-                                <p className="text-lg font-medium">File successfully indexed!</p>
+                    {uploadStatus === 'success' && (
+                        <motion.div 
+                            key="success"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="flex flex-col items-center gap-4 py-4 text-green-600 dark:text-green-400"
+                        >
+                            <div className="p-3.5 rounded-full bg-green-500/10 border border-green-500/20">
+                                <CheckCircle className="h-7 w-7" />
                             </div>
-                        )}
+                            <p className="text-sm font-semibold">Memory successfully indexed</p>
+                        </motion.div>
+                    )}
 
-                        {uploadStatus === 'error' && (
-                            <div className="flex flex-col items-center gap-4 text-red-600 dark:text-red-400 animate-in zoom-in-95">
-                                <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/30">
-                                    <AlertCircle className="h-10 w-10" />
-                                </div>
-                                <div>
-                                    <p className="text-lg font-medium">Upload failed</p>
-                                    <p className="text-sm mt-1 opacity-90">{errorMessage}</p>
-                                </div>
+                    {uploadStatus === 'error' && (
+                        <motion.div 
+                            key="error"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="flex flex-col items-center gap-4 py-4 text-red-600 dark:text-red-400"
+                        >
+                            <div className="p-3.5 rounded-full bg-red-500/10 border border-red-500/20">
+                                <AlertCircle className="h-7 w-7" />
                             </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold">Ingestion Failed</p>
+                                <p className="text-xs opacity-90 max-w-sm mx-auto">{errorMessage}</p>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
 
+            {/* Uploaded Documents Feed Section */}
             <div className="space-y-4">
-                <h3 className="text-xl font-bold dark:text-white">Uploaded Documents</h3>
+                <h3 className="text-lg font-semibold tracking-tight dark:text-white">Ingested Libraries</h3>
+                
                 {documentsLoading ? (
                     <div className="space-y-3">
                          {[1, 2, 3].map(i => (
-                             <div key={i} className="flex items-center justify-between p-4 border dark:border-gray-700 rounded-xl bg-white/50 dark:bg-gray-800/50">
+                             <div key={i} className="flex items-center justify-between p-4 border border-black/[0.04] dark:border-white/5 rounded-xl bg-white/40 dark:bg-white/[0.01]">
                                  <div className="flex items-center gap-4">
-                                     <Skeleton className="h-10 w-10 rounded-lg" />
-                                     <div className="space-y-2">
-                                         <Skeleton className="h-4 w-48" />
-                                         <Skeleton className="h-3 w-24" />
+                                     <div className="h-9 w-9 rounded-lg bg-black/[0.02] dark:bg-white/[0.02] animate-pulse" />
+                                     <div className="space-y-1.5">
+                                         <div className="h-4 w-40 bg-black/[0.04] dark:bg-white/[0.04] rounded animate-pulse" />
+                                         <div className="h-3 w-20 bg-black/[0.02] dark:bg-white/[0.02] rounded animate-pulse" />
                                      </div>
                                  </div>
-                                 <Skeleton className="h-6 w-20 rounded-full" />
+                                 <div className="h-6 w-16 bg-black/[0.04] dark:bg-white/[0.04] rounded-full animate-pulse" />
                              </div>
                          ))}
                     </div>
-                ) : documents?.length === 0 ? (
-                    <div className="text-center py-12 text-fg-secondary dark:text-gray-400 bg-bg-secondary/30 dark:bg-gray-800/30 rounded-xl border border-dashed border-border dark:border-gray-700">
-                        No documents uploaded yet.
+                ) : !documents || documents.length === 0 ? (
+                    <div className="text-center py-12 text-sm text-fg-secondary dark:text-gray-400 bg-white/30 dark:bg-white/[0.01] rounded-2xl border border-dashed border-black/[0.06] dark:border-white/5 font-light">
+                        No libraries ingested into organizational memory yet.
                     </div>
                 ) : (
-                    <div className="grid gap-3">
-                        {documents?.map((doc) => (
-                            <div key={doc.id} className="flex items-center justify-between p-4 bg-white dark:bg-gray-800/80 border border-border/60 dark:border-gray-700 rounded-xl hover:shadow-md transition-shadow duration-200">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-2.5 rounded-lg bg-bg-secondary dark:bg-gray-700">
-                                        <File className="h-5 w-5 text-fg-secondary dark:text-gray-300" />
+                    <div className="divide-y divide-black/[0.06] dark:divide-white/5 border border-black/[0.06] dark:border-white/5 bg-white/40 dark:bg-white/[0.01] rounded-2xl overflow-hidden backdrop-blur-md px-6">
+                        {documents.map((doc) => (
+                            <div key={doc.id} className="flex items-center justify-between py-4 group/doc transition-all duration-200">
+                                <div className="flex items-center gap-4 overflow-hidden">
+                                    <div className="p-2.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.04] dark:border-white/5 text-fg-secondary dark:text-gray-400 shrink-0">
+                                        <File className="h-4 w-4" />
                                     </div>
-                                    <div>
-                                        <span className="text-sm font-semibold dark:text-white block">{doc.filename}</span>
-                                        <p className="text-xs text-fg-secondary dark:text-gray-400 mt-0.5">
-                                            {new Date(doc.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    <div className="overflow-hidden">
+                                        <span className="text-sm font-semibold dark:text-white block truncate max-w-md">
+                                            {doc.filename}
+                                        </span>
+                                        <p className="text-[11px] text-fg-secondary dark:text-gray-400 font-light mt-0.5">
+                                            Ingested on {new Date(doc.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                                         </p>
                                     </div>
                                 </div>
-                                {getStatusBadge(doc.status)}
+                                
+                                <div className="flex items-center gap-6 shrink-0">
+                                    {getStatusIndicator(doc.status)}
+                                </div>
                             </div>
                         ))}
                     </div>

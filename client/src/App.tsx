@@ -9,6 +9,7 @@ import Decisions from "@/pages/Decisions";
 import Chat from "@/pages/Chat";
 import Landing from "@/pages/Landing";
 import Documentation from "@/pages/Documentation";
+import Integrations from "@/pages/Integrations";
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/decisions" element={<Decisions />} />
           <Route path="/chat" element={<Chat />} />
+          <Route path="/integrations" element={<Integrations />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

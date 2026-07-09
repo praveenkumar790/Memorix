@@ -5,8 +5,9 @@ import { User, Session } from '@supabase/supabase-js';
 type Profile = {
     id: string;
     company_id: string;
-    role_id: string;
-    role_name?: string;  // From JOIN with roles table
+    workspace_id: string;
+    workspace_name?: string;
+    role?: string;
     full_name: string;
     created_at: string;
 };
@@ -23,7 +24,7 @@ type AuthContextType = {
     profile: Profile | null;
     company: Company | null;
     isLoading: boolean;
-    signUp: (email: string, password: string, fullName: string, companyName: string, roleName: string) => Promise<{ needsConfirmation: boolean; email: string } | undefined>;
+    signUp: (email: string, password: string, fullName: string, companyName: string, accountType: string) => Promise<{ needsConfirmation: boolean; email: string } | undefined>;
     signIn: (email: string, password: string) => Promise<void>;
     signOut: () => Promise<void>;
 };
@@ -83,7 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 .from('profiles')
                 .select(`
                     *,
-                    roles (id, name)
+                    workspaces (id, name)
                 `)
                 .eq('id', userId)
                 .single();
@@ -97,9 +98,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 const { data: { user } } = await supabase.auth.getUser();
                 const fullName = user?.user_metadata?.full_name || 'User';
                 const companyName = user?.user_metadata?.company_name || 'My Company';
-                const roleName = user?.user_metadata?.role_name || 'Admin';  // Get role from metadata
+                const accountType = user?.user_metadata?.account_type || 'personal';
                 
-                console.log('🟡 STEP 2: User metadata:', { fullName, companyName, roleName, user_id: userId });
+                console.log('🟡 STEP 2: User metadata:', { fullName, companyName, accountType, user_id: userId });
 
                 // Find or create company (case-insensitive)
                 let companyId: string;
@@ -130,56 +131,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     console.log('🟡 STEP 4: Created new company:', companyId);
                 }
 
-                // Find or create role (to prevent unique constraint violations)
-                let roleId: string;
-                console.log('🟡 STEP 5: Looking up role:', { companyId, roleName });
-                const { data: existingRole, error: roleLookupError } = await supabase
-                    .from('roles')
+                // Find or create workspace
+                let workspaceId: string;
+                const workspaceName = accountType === 'team' ? companyName : `${fullName}'s Workspace`;
+                console.log('🟡 STEP 5: Looking up workspace:', { companyId, workspaceName });
+                const { data: existingWorkspace } = await supabase
+                    .from('workspaces')
                     .select('id')
                     .eq('company_id', companyId)
-                    .eq('name', roleName)
+                    .eq('name', workspaceName)
                     .maybeSingle();
 
-                if (roleLookupError) throw roleLookupError;
-
-                if (existingRole) {
-                    roleId = existingRole.id;
-                    console.log('✅ PROFILE (Confirm): Found existing role:', existingRole);
+                if (existingWorkspace) {
+                    workspaceId = existingWorkspace.id;
+                    console.log('✅ PROFILE (Confirm): Found existing workspace:', existingWorkspace);
                 } else {
-                    const { data: roleData, error: roleError } = await supabase
-                        .from('roles')
-                        .insert({ company_id: companyId, name: roleName })
-                        .select()
-                        .single();
+                    workspaceId = crypto.randomUUID();
+                    const { error: workspaceError } = await supabase
+                        .from('workspaces')
+                        .insert({ id: workspaceId, company_id: companyId, name: workspaceName, type: accountType });
 
-                    if (roleError) {
-                        console.error('❌ PROFILE (Confirm): Error creating role:', roleError);
-                        throw roleError;
+                    if (workspaceError) {
+                        console.error('❌ PROFILE (Confirm): Error creating workspace:', workspaceError);
+                        throw workspaceError;
                     }
-                    roleId = roleData.id;
-                    console.log('✅ PROFILE (Confirm): Created new role:', roleData);
+                    console.log('✅ PROFILE (Confirm): Created new workspace:', workspaceId);
                 }
-                console.log('🟡 STEP 6: Role resolved, roleId =', roleId);
+                console.log('🟡 STEP 6: Workspace resolved, workspaceId =', workspaceId);
 
-                // Create profile with role_id
-                console.log('🟡 STEP 7: Creating profile with:', { userId, companyId, roleId, fullName });
-                const { data: newProfileData, error: newProfileError } = await supabase
+                // Create profile with workspace_id
+                console.log('🟡 STEP 7: Creating profile with:', { userId, companyId, workspaceId, fullName });
+                const profilePayload = {
+                    id: userId,
+                    company_id: companyId,
+                    workspace_id: workspaceId,
+                    role: accountType,
+                    full_name: fullName,
+                    created_at: new Date().toISOString(),
+                };
+                
+                const { error: newProfileError } = await supabase
                     .from('profiles')
-                    .insert({
-                        id: userId,
-                        company_id: companyId,
-                        role_id: roleId, // Fixed: use roleId, not roleData.id
-                        full_name: fullName,
-                    })
-                    .select()
-                    .single();
+                    .insert(profilePayload);
 
                 if (newProfileError) {
                     console.error('❌ STEP 8 FAILED: Error creating profile:', newProfileError);
                     throw newProfileError;
                 }
 
-                console.log('✅ STEP 8: Profile created successfully:', newProfileData);
+                console.log('✅ STEP 8: Profile created successfully');
 
                 // Fetch company for state
                 const { data: companyData } = await supabase
@@ -189,8 +189,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     .single();
 
                 setProfile({
-                    ...newProfileData,
-                    role_name: roleName  // Use actual role from metadata
+                    ...profilePayload,
+                    workspace_name: workspaceName
                 });
                 setCompany(companyData);
                 setIsLoading(false);
@@ -199,10 +199,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             if (profileError) throw profileError;
             
-            // Set profile with role_name from JOIN
+            // Set profile with workspace_name from JOIN
             setProfile({
                 ...profileData,
-                role_name: profileData.roles?.name
+                workspace_name: profileData.workspaces?.name
             });
 
             // Load company
@@ -223,7 +223,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const signUp = async (email: string, password: string, fullName: string, companyName: string, roleName: string) => {
+    const signUp = async (email: string, password: string, fullName: string, companyName: string, accountType: string) => {
         try {
             // 1. Sign up user with Supabase Auth
             const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -234,7 +234,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     data: {
                         full_name: fullName,
                         company_name: companyName,
-                        role_name: roleName  // Store for email confirmation flow
+                        account_type: accountType  // Store for email confirmation flow
                     }
                 }
             });
@@ -281,43 +281,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 companyId = newCompany.id;
             }
 
-            // 3. Find or create role
-            let roleId: string;
-            const { data: existingRole, error: roleLookupError } = await supabase
-                .from('roles')
+            // 3. Find or create workspace
+            let workspaceId: string;
+            const workspaceName = accountType === 'team' ? companyName : `${fullName}'s Workspace`;
+            const { data: existingWorkspace, error: workspaceLookupError } = await supabase
+                .from('workspaces')
                 .select('id')
                 .eq('company_id', companyId)
-                .eq('name', roleName)
-                .maybeSingle(); // Use maybeSingle to avoid error when role doesn't exist
+                .eq('name', workspaceName)
+                .maybeSingle();
 
-            if (roleLookupError) throw roleLookupError;
+            if (workspaceLookupError) throw workspaceLookupError;
 
-            if (existingRole) {
-                roleId = existingRole.id;
-                console.log('✅ SIGNUP: Found existing role:', existingRole);
+            if (existingWorkspace) {
+                workspaceId = existingWorkspace.id;
+                console.log('✅ SIGNUP: Found existing workspace:', existingWorkspace);
             } else {
-                console.log('🔵 SIGNUP: Creating new role:', { company_id: companyId, name: roleName });
-                const { data: newRole, error: roleError } = await supabase
-                    .from('roles')
-                    .insert({ company_id: companyId, name: roleName })
+                console.log('🔵 SIGNUP: Creating new workspace:', { company_id: companyId, name: workspaceName });
+                const { data: newWorkspace, error: workspaceError } = await supabase
+                    .from('workspaces')
+                    .insert({ company_id: companyId, name: workspaceName, type: accountType })
                     .select()
                     .single();
 
-                if (roleError) {
-                    console.error('❌ SIGNUP: Role creation failed:', roleError);
-                    throw roleError;
+                if (workspaceError) {
+                    console.error('❌ SIGNUP: Workspace creation failed:', workspaceError);
+                    throw workspaceError;
                 }
-                console.log('✅ SIGNUP: Role created successfully:', newRole);
-                roleId = newRole.id;
+                console.log('✅ SIGNUP: Workspace created successfully:', newWorkspace);
+                workspaceId = newWorkspace.id;
             }
 
-            // 4. Create profile with role
+            // 4. Create profile with workspace
             const { error: profileError } = await supabase
                 .from('profiles')
                 .insert({
                     id: authData.user.id,
                     company_id: companyId,
-                    role_id: roleId,
+                    workspace_id: workspaceId,
+                    role: accountType,
                     full_name: fullName,
                 });
 

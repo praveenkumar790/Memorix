@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    env_file:
+      - ./server/.env
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    # We map port 80 inside the Nginx container to port 8080 on the host machine.
+    # The client can now be accessed at http://localhost:8080
+    restart: unless-stopped
+    depends_on:
+      - server

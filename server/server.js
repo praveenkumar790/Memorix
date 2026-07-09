@@ -13,7 +13,7 @@ app.use(helmet());
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 5 * 60 * 1000, // 5 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
@@ -36,7 +36,7 @@ const chatRoutes = require('./routes/chat');
 const decisionRoutes = require('./routes/decisions');
 const dashboardRoutes = require('./routes/dashboard');
 const documentsRoutes = require('./routes/documents');
-const rolesRoutes = require('./routes/roles');
+const integrationsRoutes = require('./routes/integrations');
 
 // Mount Routes
 app.use('/api/ingest', ingestRoutes);
@@ -44,7 +44,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/decisions', decisionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/documents', documentsRoutes);
-app.use('/api/roles', rolesRoutes);
+app.use('/api/integrations', integrationsRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

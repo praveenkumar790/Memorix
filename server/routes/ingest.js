@@ -3,8 +3,11 @@ const router = express.Router();
 const upload = require('../middleware/upload');
 const authMiddleware = require('../middleware/auth');
 const ingestionService = require('../services/ingestionService');
+const createSlidingRateLimiter = require('../middleware/rateLimit');
 
-router.post('/', authMiddleware, upload.single('file'), async (req, res) => {
+const ingestRateLimit = createSlidingRateLimiter('ingest', 5, 60); // 5 documents per 60 minutes
+
+router.post('/', authMiddleware, ingestRateLimit, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }

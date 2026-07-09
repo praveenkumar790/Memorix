@@ -1,11 +1,10 @@
 /**
- * Generate namespace for Pinecone based on company and role
- * Format: ns-{companyId}-{roleName}
+ * Generate namespace for Pinecone based on workspace
+ * Format: ns-{workspaceId}
  */
 function generateNamespace(user) {
-  const companyId = user.company_id || 'unknown';
-  const roleName = (user.role_name || user.role || 'general').toLowerCase().replace(/\s+/g, '-');
-  return `ns-${companyId}-${roleName}`;
+  const workspaceId = user.workspace_id || 'unknown';
+  return `ns-${workspaceId}`;
 }
 
 module.exports = { generateNamespace };

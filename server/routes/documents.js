@@ -12,12 +12,12 @@ router.get('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'User is not associated with a company' });
     }
 
-    // Fetch recent documents for user's role only
+    // Fetch recent documents for user's workspace only
     const { data: documents, error } = await supabase
       .from('documents')
-      .select('id, filename, file_type, status, created_at')
+      .select('*')
       .eq('company_id', companyId)
-      .eq('role_id', req.user.role_id)  // Filter by user's role
+      .eq('workspace_id', req.user.workspace_id)
       .order('created_at', { ascending: false })
       .limit(10);
 

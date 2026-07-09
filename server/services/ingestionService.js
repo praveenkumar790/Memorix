@@ -6,6 +6,8 @@ const { pineconeIndex } = require('../config/pinecone');
 // const { embeddingModel } = require('../config/gemini');
 const supabase = require('../config/supabase');
 const { generateNamespace } = require('../utils/namespace');
+const { deleteCache } = require('../config/redis');
+const { classifyDocument } = require('./classificationService');
 
 const ingestionService = {
   async processFile(file, user, companyId) {
@@ -14,9 +16,9 @@ const ingestionService = {
 
     try {
       // 1. Upload file to Supabase Storage (for persistence/download)
-      // Storage path structure: {companyId}/{role}/{filename}
+      // Storage path structure: {workspaceId}/{filename}
       const fileBuffer = fs.readFileSync(file.path);
-      storagePath = `${companyId}/${user.role_name || 'general'}/${file.filename}`;
+      storagePath = `${user.workspace_id}/${file.filename}`;
       
       const { data: storageData, error: storageError } = await supabase.storage
         .from('memorix') // Storage bucket name
@@ -36,7 +38,7 @@ const ingestionService = {
           filename: file.originalname,
           file_type: file.mimetype,
           status: 'processing',
-          role_id: user.role_id  // Store role_id
+          workspace_id: user.workspace_id  // Store workspace_id
         })
         .select()
         .single();
@@ -44,14 +46,42 @@ const ingestionService = {
       if (docError) throw new Error(`DB Insert Error: ${docError.message}`);
       documentId = docData.id;
 
-      // 3. Extract Text
+      // 3a. Extract Text (moved up — needed before classification)
       let text = '';
       if (file.mimetype === 'application/pdf') {
-        const data = await pdf(fileBuffer);
-        text = data.text;
+        const pdfData = await pdf(fileBuffer);
+        text = pdfData.text;
       } else {
-        // TODO: Handle docx, txt
         text = fs.readFileSync(file.path, 'utf8');
+      }
+
+      // 3b. Classify document type and technologies via Gemini (single cheap call)
+      // Fails silently — never blocks ingestion
+      const classification = await classifyDocument(text);
+      console.log(`[ingestionService] Classified "${file.originalname}" as: ${classification.doc_type}, techs: [${classification.technologies.join(', ')}]`);
+
+      // 3c. Persist classification back to the document record
+      await supabase
+        .from('documents')
+        .update({
+          doc_type: classification.doc_type,
+          technologies: classification.technologies
+        })
+        .eq('id', documentId);
+
+      // 3d. Engineering Wedge: ADR Auto-Detection
+      if (classification.doc_type === 'adr') {
+         const decisionService = require('./decisionService');
+         try {
+           await decisionService.createDecision(user, companyId, {
+             title: file.originalname.replace(/\.[^/.]+$/, ""), // strip extension
+             content: text,
+             tags: ['ADR', 'Auto-Detected', ...classification.technologies]
+           });
+           console.log(`[ingestionService] Auto-promoted ${file.originalname} to an organizational decision.`);
+         } catch(e) {
+           console.error("[ingestionService] Failed to auto-promote ADR:", e);
+         }
       }
 
       // 4. Chunk Text
@@ -64,17 +94,32 @@ const ingestionService = {
       // 5. Prepare Records for Pinecone Integrated Embedding
       // Pinecone will automatically generate embeddings using llama-text-embed-v2
       const records = [];
+      const now = new Date().toISOString();
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         
         records.push({
-          _id: `${documentId}_${i}`,  // Use _id for integrated embedding
-          text: chunk.pageContent,    // This field maps to the embedding model (configured in Pinecone)
-          filename: file.originalname, // Store filename for search result display
+          _id: `${documentId}_${i}`,        // Use _id for integrated embedding
+          text: chunk.pageContent,           // This field maps to the embedding model (configured in Pinecone)
+          // --- Rich metadata for citations, filtering, and clean deletion ---
+          provider: 'document',              // 'document' | 'notion' | 'slack' | 'confluence'
+          sourceId: documentId,              // DB record ID — enables clean vector deletion by doc
+          sourceTitle: file.originalname,    // Human-readable name shown in citations
+          sourceUrl: storagePath,            // Supabase storage path (for download links)
+          author: user.full_name || user.email || 'Unknown',
+          createdAt: now,
+          updatedAt: now,
+          chunkIndex: i,                     // Which chunk within the document
+          totalChunks: chunks.length,        // Total chunks — useful for debugging coverage
+          // --- Classification metadata ---
+          doc_type: classification.doc_type || 'general',
+          technologies: classification.technologies.join(','),
+          // --- Kept for backward compatibility ---
+          filename: file.originalname,
           document_id: documentId,
           company_id: companyId,
-          role_id: user.role_id,      // Store role_id for filtering
+          workspace_id: user.workspace_id,
           page_number: chunk.metadata.loc?.lines?.from || 0
         });
       }
@@ -100,6 +145,10 @@ const ingestionService = {
         .from('documents')
         .update({ status: 'indexed' })
         .eq('id', documentId);
+
+      // Invalidate dashboard caches
+      await deleteCache(`cache:dashboard:stats:workspace:${user.workspace_id}`);
+      await deleteCache(`cache:dashboard:activity:workspace:${user.workspace_id}`);
 
       // Cleanup local file
       if (fs.existsSync(file.path)) {

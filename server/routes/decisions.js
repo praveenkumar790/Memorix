@@ -31,7 +31,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const offset = parseInt(req.query.offset) || 0;
 
-    const decisions = await decisionService.listDecisions(companyId, req.user.role_id, limit, offset);
+    const decisions = await decisionService.listDecisions(companyId, req.user.workspace_id, limit, offset);
     res.json(decisions);
   } catch (error) {
     console.error(error);
