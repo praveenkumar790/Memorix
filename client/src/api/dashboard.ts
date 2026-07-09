@@ -3,11 +3,13 @@ import api from "./client";
 export type Stats = {
     documents: number;
     decisions: number;
+    uploaded_documents?: number;
+    integration_documents?: number;
 };
 
 export type ActivityItem = {
     id: string;
-    type: 'document' | 'decision';
+    type: 'document' | 'decision' | 'integration';
     label: string;
     meta: string;
     created_at: string;
